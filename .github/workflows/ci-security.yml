@@ -18,7 +18,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -------- Build (Node app) --------
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -33,8 +32,8 @@ jobs:
       - name: Test
         run: npm test --if-present || true  # не валим pipeline на редких flaky
 
-      # -------- SAST #2: Semgrep --------
-      # Используем популярный ruleset OWASP Top 10
+
+
       - name: Semgrep scan
         uses: returntocorp/semgrep-action@v1
         with:
@@ -56,7 +55,7 @@ jobs:
           name: semgrep-sarif
           path: semgrep.sarif
 
-      # -------- SCA: Trivy (dependencies / filesystem) --------
+
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.2.2
 
@@ -79,8 +78,6 @@ jobs:
             trivy-fs.sarif
             trivy-fs.txt
 
-      # -------- SCA: Trivy (container image of Juice Shop) --------
-      # Сканируем официальный контейнер приложения из Docker Hub
       - name: Pull Juice Shop image
         run: docker pull bkimminich/juice-shop:latest
 
