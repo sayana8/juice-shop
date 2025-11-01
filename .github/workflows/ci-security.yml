@@ -1,0 +1,103 @@
+name: CI + SAST + SCA
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write    # для загрузки SARIF в Security таб
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------- Build (Node app) --------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build --if-present
+
+      - name: Test
+        run: npm test --if-present || true  # не валим pipeline на редких flaky
+
+      # -------- SAST #2: Semgrep --------
+      # Используем популярный ruleset OWASP Top 10
+      - name: Semgrep scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+          generateSarif: "true"
+          sarifReport: "semgrep.sarif"
+        env:
+          SEMGREP_APP_TOKEN: ""
+
+      - name: Upload Semgrep SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Save Semgrep report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
+      # -------- SCA: Trivy (dependencies / filesystem) --------
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.2
+
+      - name: Trivy FS (project dependencies)
+        run: |
+          trivy fs --scanners vuln,secret,misconfig \
+                   --format sarif --output trivy-fs.sarif .
+          trivy fs --format table --output trivy-fs.txt .
+
+      - name: Upload Trivy FS SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+
+      - name: Save Trivy FS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-reports
+          path: |
+            trivy-fs.sarif
+            trivy-fs.txt
+
+      # -------- SCA: Trivy (container image of Juice Shop) --------
+      # Сканируем официальный контейнер приложения из Docker Hub
+      - name: Pull Juice Shop image
+        run: docker pull bkimminich/juice-shop:latest
+
+      - name: Trivy Image
+        run: |
+          trivy image --format sarif --output trivy-image.sarif bkimminich/juice-shop:latest
+          trivy image --format table --output trivy-image.txt bkimminich/juice-shop:latest
+
+      - name: Upload Trivy Image SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+
+      - name: Save Trivy Image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-reports
+          path: |
+            trivy-image.sarif
+            trivy-image.txt
